@@ -61,7 +61,7 @@ character: 'mon-hum-neu-mal' # Specification of the NetHack character.
 
 # RUN settings.
 mode: train                  # Training or test mode.
-env: challenge               # Name of Gym environment to create.
+env: staircase               # Name of Gym environment to create.
                              # # env (task) names: challenge, staircase, pet, 
                              #     eat, gold, score, scout, oracle
 
