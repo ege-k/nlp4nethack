@@ -1,7 +1,8 @@
 torch
 einops
-hydra-core==1.0.6
-hydra_colorlog
+hydra
+hydra-core==1.0
+hydra_colorlog==1.0.0
 aicrowd-api
 aicrowd-gym
 numpy

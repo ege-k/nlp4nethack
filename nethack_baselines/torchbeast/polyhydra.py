@@ -120,7 +120,7 @@ def main(flags: DictConfig):
         cli_conf = OmegaConf.from_cli()
         flags = OmegaConf.merge(new_flags, cli_conf)
 
-    logging.info(flags.pretty(resolve=True))
+    logging.info(flags)
     OmegaConf.save(flags, "config.yaml")
 
     flags = get_common_flags(flags)
