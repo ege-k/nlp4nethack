@@ -132,3 +132,7 @@ dmypy.json
 
 nle_data/
 test_batched_env.py
+
+# Outputs of training
+nethack_baselines/torchbeast/latest
+nethack_baselines/torchbeast/outputs/
