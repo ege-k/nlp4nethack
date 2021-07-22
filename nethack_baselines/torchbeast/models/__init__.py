@@ -51,6 +51,6 @@ def load_model(load_dir, device):
     flags = OmegaConf.load(load_dir + "/config.yaml")
     flags.checkpoint = load_dir + "/checkpoint.tar"
     model = create_model(flags, device)
-    checkpoint_states = torch.load(flags.checkpoint, map_location=device)
-    model.load_state_dict(checkpoint_states["model_state_dict"])
+    #checkpoint_states = torch.load(flags.checkpoint, map_location=device)
+    #model.load_state_dict(checkpoint_states["model_state_dict"])
     return model
