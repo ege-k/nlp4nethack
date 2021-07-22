@@ -10,3 +10,8 @@ scipy
 nle>=0.7.2
 tqdm
 wandb
+elasticsearch
+transformers
+PyPDF2
+spacy
+nltk
