@@ -105,3 +105,5 @@ msg:
 
 # TEST settings.    
 load_dir: null               # Path to load a model from for testing
+
+max_learner_queue_size: null
