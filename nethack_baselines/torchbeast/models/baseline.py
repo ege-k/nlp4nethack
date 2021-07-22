@@ -426,6 +426,7 @@ class MessageEncoderLongformer(nn.Module):
         self.model.eval()  # we have to set to training mode if we wanna train, cause default is eval
         self.tokenizer = LongformerTokenizer.from_pretrained('allenai/longformer-base-4096')
         self.hidden_size = self.model.config.hidden_size  # longformer hidden size
+        self.MAX_INPUT_LENGTH = 4096
 
         self.fc = nn.Linear(self.hidden_size, self.hidden_dim)
 
@@ -433,55 +434,73 @@ class MessageEncoderLongformer(nn.Module):
         message_ids = inputs["message"]
         batch_size = inputs["message"].shape[1]
         if inputs["message"].shape[0] != 1:
-            raise NotImplementedError("Please message me if this pops up.")
-
-        from time import time
-        start = time()
+            raise NotImplementedError("Please message Johannes if this pops up.")
 
         outputs = []
 
         for idx in range(batch_size):
-            message = bytes(message_ids.cpu().numpy()[0][idx].astype(int)).decode(sys.stdout.encoding).replace("\x00", "")
-            print(idx, message)
 
-            # we have to remove certain characters else elasticsearch crashes
-            for char in ["+", "-", "=", "&&", "||", ">", "<", "!", "(", ")", "{", "}",
-                         "[", "]", "^", "\"", "~", "*", "?", ":", "\\", "/"]:
-                message = message.replace(char, "")
+            # Agents can get stuck in the search command and then they can input stuff that breaks this code.
+            # Example ingame message: "Search for: $htWKgIWBAFxXhdthIX GFTBP"
+            # Thus I put in this exception that ignores byte-characters that are unknown.
+            try:
+                message = bytes(message_ids.cpu().numpy()[0][idx].astype(int)).decode(sys.stdout.encoding).replace("\x00", "")
+            except UnicodeDecodeError:
+                message = ""
+                for byte in message_ids.cpu().numpy()[0][idx].astype(int):
+                    try:
+                        message += bytes([byte]).decode(sys.stdout.encoding)
+                    except UnicodeDecodeError:
+                        pass
+                message.replace("\x00", "")
 
-            # get documents from ElasticSearch
-            query_body = {'query': {
-                    "query_string": {
-                        "query": message
+
+            if len(message) > 0:
+                # Case where we've got a message
+
+                # we have to remove certain characters else elasticsearch crashes
+                for char in ["+", "-", "=", "&&", "||", ">", "<", "!", "(", ")", "{", "}",
+                             "[", "]", "^", "\"", "~", "*", "?", ":", "\\", "/"]:
+                    message = message.replace(char, "")
+
+                # get documents from ElasticSearch
+                query_body = {'query': {
+                        "query_string": {
+                            "query": message
+                        }
                     }
                 }
-            }
-            res = self.es.search(index="nethack_corpus", body=query_body)
+                res = self.es.search(index="nethack_corpus", body=query_body)
 
-            # create the input for the longformer by concatenating everything
-            input_sent = ("[CLS] " + message)
-            # calculate this for later. this can be done more nicely, but shouldnt hurt runtime very badly
-            global_attention_span = len(self.tokenizer.encode(input_sent))
-            for doc in res['hits']['hits']:
-                if doc['_score'] > self.SCORE_THRESHOLD:
-                    # we have a limited input length to longformer, so we make sure that no doc hogs it all
-                    MAX_DOC_LENGTH = 5000
-                    input_sent += " [SEP] " + doc['_source']['text'][:MAX_DOC_LENGTH]
+                # create the input for the longformer by concatenating everything
+                input_sent = ("[CLS] " + message)
+                # calculate this for later. this can be done more nicely, but shouldnt hurt runtime very badly
+                global_attention_span = len(self.tokenizer.encode(input_sent))
+                for doc in res['hits']['hits']:
+                    if doc['_score'] > self.SCORE_THRESHOLD:
+                        # we have a limited input length to longformer, so we make sure that no doc hogs it all
+                        MAX_DOC_LENGTH = 4000
+                        input_sent += " [SEP] " + doc['_source']['text'][:MAX_DOC_LENGTH]
 
-            # cut the input off so it fits into longformer
-            MAX_INPUT_LENGTH = 4096
+                # no warning logging so it doesnt complain about the token sequence length all the time
+                logging.set_verbosity_error()
+                # cut the input off so it fits into longformer
+                input_ids = self.tokenizer.encode(input_sent)[:self.MAX_INPUT_LENGTH]
+                logging.set_verbosity_warning()
 
-            # so it doesnt complain about the token sequence length all the time
-            logging.set_verbosity_error()
-            input_ids = self.tokenizer.encode(input_sent)[:MAX_INPUT_LENGTH]
-            logging.set_verbosity_warning()
+                # pad the input so all have the same length
+                padding_len = self.MAX_INPUT_LENGTH - len(input_ids)
+                if len(input_ids) < self.MAX_INPUT_LENGTH:
+                    input_ids += ([0] * padding_len)
 
-            # pad the input so all have the same length
-            padding_len = MAX_INPUT_LENGTH - len(input_ids)
-            if len(input_ids) < MAX_INPUT_LENGTH:
-                input_ids += ([0] * padding_len)
+                input_ids = torch.tensor(input_ids).unsqueeze(0).to(self.device)
+            else:
+                # This is the case if we didn't get a new message
+                input_ids = torch.zeros([1, self.MAX_INPUT_LENGTH], dtype=torch.long,
+                                        device=self.device)
+                padding_len = self.MAX_INPUT_LENGTH
+                global_attention_span = 0
 
-            input_ids = torch.tensor(input_ids).unsqueeze(0).to(self.device)
             # initialize to local attention
             attention_mask = torch.ones(input_ids.shape, dtype=torch.long,
                                         device=input_ids.device)
@@ -496,7 +515,6 @@ class MessageEncoderLongformer(nn.Module):
             pooled_output = output.pooler_output
 
             outputs.append(pooled_output)
-
         # NOTE: In this version, we are pushing the messages through longformer one after another,
         # meaning in batches of 1
         # I do not know if this hurts performance badly, and if we should batch properly instead
@@ -505,7 +523,6 @@ class MessageEncoderLongformer(nn.Module):
         # apply FC layer to get everything into the correct MLP dimensionality
         outputs = torch.cat(outputs)
         output = self.fc(outputs)
-        print("Function ran for: ", time()-start)
 
         return output  # -- [ B x h_dim ]
 
