@@ -19,8 +19,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from einops import rearrange
-from transformers import logging, LongformerModel, LongformerTokenizer
-
+from transformers import logging, LongformerModel, LongformerTokenizer, BertModel, BertTokenizer
 
 from nle import nethack
 
@@ -126,9 +125,20 @@ class BaselineNet(NetHackNet):
         self.glyph_model = GlyphEncoder(flags, self.H, self.W, flags.crop_dim, device)
 
         # MESSAGING MODEL
-        self.msg_model = MessageEncoderLongformer(
-            flags.msg.hidden_dim, flags.msg.embedding_dim, device
-        )
+        if flags.msg.model == "bert":
+            self.msg_model = MessageEncoderBERT(
+                flags.msg.hidden_dim, flags.msg.embedding_dim, device
+            )
+        elif flags.msg.model == "longformer":
+            self.msg_model = MessageEncoderLongformer(
+                flags.msg.hidden_dim, flags.msg.embedding_dim, device
+            )
+        elif flags.msg.model == "vanilla":
+            self.msg_model = MessageEncoder(
+                flags.msg.hidden_dim, flags.msg.embedding_dim, device
+            )
+        else:
+            raise ValueError("No known model: " + flags.msg.model)
 
         # BLSTATS MODEL
         self.blstats_model = BLStatsEncoder(NUM_FEATURES, flags.embedding_dim)
@@ -349,7 +359,6 @@ class GlyphEncoder(nn.Module):
         st = torch.cat([glyphs_rep, crop_rep], dim=1)
         return st
 
-
 class MessageEncoder(nn.Module):
     """This model encodes the the topline message into a fixed size representation.
 
@@ -522,6 +531,115 @@ class MessageEncoderLongformer(nn.Module):
 
         # apply FC layer to get everything into the correct MLP dimensionality
         outputs = torch.cat(outputs)
+        output = self.fc(outputs)
+
+        return output  # -- [ B x h_dim ]
+
+class MessageEncoderBERT(nn.Module):
+    """The same as MessageEncoder but uses BERT embeddings over corpus.
+    """
+
+    def __init__(self, hidden_dim, embedding_dim, device=None):
+        super(MessageEncoderBERT, self).__init__()
+
+        self.hidden_dim = hidden_dim  # higher-level MLP hidden size
+        self.msg_edim = embedding_dim
+
+        # load Elasticsearch with index
+        corpus = load_corpus(nhc_dir="NetHackCorpus/")
+        self.es = load_index(corpus, rebuild=False)
+        self.SCORE_THRESHOLD = 8
+
+        self.device = device
+
+        # Load pretrained longformer
+        self.model = BertModel.from_pretrained('bert-base-uncased')
+        self.model.eval()  # we have to set to training mode if we wanna train, cause default is eval
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.hidden_size = self.model.config.hidden_size  # BERT hidden size, usually 768
+        self.MAX_INPUT_LENGTH = 512
+
+        self.fc = nn.Linear(self.hidden_size, self.hidden_dim)
+        # add this so we have something learnable before maxpool
+        self.fc_internal = nn.Linear(self.hidden_size, self.hidden_size)
+
+    def forward(self, inputs):
+        message_ids = inputs["message"]
+        batch_size = inputs["message"].shape[1]
+        if inputs["message"].shape[0] != 1:
+            raise NotImplementedError("Please message Johannes if this pops up. (BERT)")
+
+        outputs = []
+
+        for idx in range(batch_size):
+
+            # Agents can get stuck in the search command and then they can input stuff that breaks this code.
+            # Example ingame message: "Search for: $htWKgIWBAFxXhdthIX GFTBP"
+            # Thus I put in this exception that ignores byte-characters that are unknown.
+            try:
+                message = bytes(message_ids.cpu().numpy()[0][idx].astype(int)).decode(sys.stdout.encoding).replace("\x00", "")
+            except UnicodeDecodeError:
+                message = ""
+                for byte in message_ids.cpu().numpy()[0][idx].astype(int):
+                    try:
+                        message += bytes([byte]).decode(sys.stdout.encoding)
+                    except UnicodeDecodeError:
+                        pass
+                message.replace("\x00", "")
+
+            if len(message) == 0:
+                # This is the case if we didn't get a new message
+                outputs.append(torch.zeros(self.hidden_size))
+            else:
+                # Case where we've got a message
+
+                # we have to remove certain characters else elasticsearch crashes
+                for char in ["+", "-", "=", "&&", "||", ">", "<", "!", "(", ")", "{", "}",
+                             "[", "]", "^", "\"", "~", "*", "?", ":", "\\", "/"]:
+                    message = message.replace(char, "")
+
+                # get documents from ElasticSearch
+                query_body = {'query': {
+                        "query_string": {
+                            "query": message
+                        }
+                    }
+                }
+                res = self.es.search(index="nethack_corpus", body=query_body)
+
+                res_outputs = []
+                for doc in res['hits']['hits']:
+                    if doc['_score'] > self.SCORE_THRESHOLD:
+                        input_sent = ("[CLS] " + message)
+                        input_sent += " [SEP] " + doc['_source']['text']
+
+                        # no warning logging so it doesnt complain about the token sequence length all the time
+                        logging.set_verbosity_error()
+                        # cut the input off so it fits into BERT
+                        input_ids = self.tokenizer.encode(input_sent)[:self.MAX_INPUT_LENGTH]
+                        logging.set_verbosity_warning()
+
+                        # pad the input so all have the same length
+                        padding_len = self.MAX_INPUT_LENGTH - len(input_ids)
+                        if len(input_ids) < self.MAX_INPUT_LENGTH:
+                            input_ids += ([0] * padding_len)
+
+                        input_ids = torch.tensor(input_ids).unsqueeze(0).to(self.device)
+
+                        with torch.no_grad():
+                            output = self.model(input_ids)
+                        pooled_output = output.pooler_output  # get output for [CLS] token
+                        res_outputs.append(self.fc_internal(pooled_output))
+
+                if len(res_outputs) == 0:
+                    # The weird case that no document got a score above threshold
+                    outputs.append(torch.zeros(self.hidden_size))
+                else:
+                    res_outputs = torch.cat(res_outputs)
+                    # focus on the biggest activation in the document outputs
+                    outputs.append(torch.max(res_outputs, 0)[0])
+
+        outputs = torch.stack(outputs)
         output = self.fc(outputs)
 
         return output  # -- [ B x h_dim ]
