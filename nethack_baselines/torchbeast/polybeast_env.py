@@ -83,9 +83,8 @@ def create_env(flags, env_id=0, lock=threading.Lock()):
             penalty_time=flags.penalty_time,
             penalty_mode=flags.fn_penalty_step,
         )
-        if flags.env in ("staircase", "pet", "oracle"):
-            kwargs.update(reward_win=flags.reward_win, reward_lose=flags.reward_lose)
-        elif env_id == 0:  # print warning once
+        
+        if env_id == 0:  # print warning once
             print("Ignoring flags.reward_win and flags.reward_lose")
         if flags.state_counter != "none":
             kwargs.update(state_counter=flags.state_counter)
