@@ -5,7 +5,8 @@ from agents.base import BatchedAgent
 
 from nethack_baselines.torchbeast.models import load_model
 
-MODEL_DIR = "./saved_models/torchbeast/pretrained_0.5B"
+#MODEL_DIR = "./saved_models/torchbeast/pretrained_0.5B"
+MODEL_DIR = "./nethack_baselines/torchbeast"
 
 
 class TorchBeastAgent(BatchedAgent):
@@ -16,7 +17,10 @@ class TorchBeastAgent(BatchedAgent):
     def __init__(self, num_envs, num_actions):
         super().__init__(num_envs, num_actions)
         self.model_dir = MODEL_DIR
-        self.device = "cuda:0"
+        if torch.cuda.is_available():
+            self.device = "cuda:0"
+        else:
+            self.device = "cpu"
         self.model = load_model(MODEL_DIR, self.device)
 
         self.core_state = [

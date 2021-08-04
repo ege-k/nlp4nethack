@@ -73,8 +73,8 @@ unroll_length: 80            # The unroll length (time dimension).
 num_learner_threads: 1       # Number learner threads.
 num_inference_threads: 1     # Number inference threads.
 disable_cuda: false          # Disable CUDA.
-learner_device: cuda:1       # Set learner device.
-actor_device: cuda:0         # Set actor device.
+learner_device: cuda:0       # Set learner device.
+actor_device: cuda:1         # Set actor device.
 
 # OPTIMIZER settings. (RMS Prop)
 learning_rate: 0.0002        # Learning rate.
@@ -102,6 +102,7 @@ restrict_action_space: True  # Use a restricted ACTION SPACE (only nethack.USEFU
 msg:                      
   hidden_dim: 64             # Hidden dimension for message encoder.
   embedding_dim: 32          # Embedding dimension for characters in message encoder.
+  model: bert                # Specifies the msg model. Options: [bert, longformer, vanilla]
 
 # TEST settings.    
 load_dir: null               # Path to load a model from for testing
