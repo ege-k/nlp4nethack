@@ -16,13 +16,14 @@ from nle.env import tasks
 from nle.env.base import DUNGEON_SHAPE
 
 from .baseline import BaselineNet
+from .envs import NetHackStaircase
 
 from omegaconf import OmegaConf
 import torch
 
 
 ENVS = dict(
-    staircase=tasks.NetHackStaircase,
+    staircase=NetHackStaircase,
     score=tasks.NetHackScore,
     pet=tasks.NetHackStaircasePet,
     oracle=tasks.NetHackOracle,
