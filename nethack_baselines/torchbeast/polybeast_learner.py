@@ -33,7 +33,7 @@ import libtorchbeast
 from core import file_writer
 from core import vtrace
 
-from models import create_model
+from models import create_model, create_learner_model, convert_dict
 from models.baseline import NetHackNet
 
 from torch import nn
@@ -84,7 +84,16 @@ def inference(
                 (observation, agent_state),
             )
             with lock:
-                outputs = model(observation, agent_state)
+                #outputs = model(observation, agent_state)
+                outputs = model(observation["glyphs"], 
+                          observation["chars"],
+                          observation["colors"],
+                          observation["specials"],
+                          observation["blstats"],
+                          observation["message"],
+                          observation["done"],
+                          agent_state)
+
             core_outputs, agent_state = nest.map(lambda t: t.cpu(), outputs)
             # Restructuring the output in the way that is expected
             # by the functions in actorpool.
@@ -133,9 +142,25 @@ def learn(
         observation["reward"] = reward
         observation["done"] = done
 
-        lock.acquire()  # Only one thread learning at a time.
+        print(observation["glyphs"].type(), flush=True)
+        print(observation["chars"].type(),flush=True)
+        print(observation["colors"].type(),flush=True)
+        print(observation["specials"].type(),flush=True)
+        print(observation["blstats"].type(),flush=True)
+        print(observation["message"].type(),flush=True)
+        print(observation["done"].type(),flush=True)
 
-        output, _ = model(observation, initial_agent_state, learning=True)
+        lock.acquire()  # Only one thread learning at a time.
+        #output, _ = model(observation, initial_agent_state, learning=True)
+        output, _ = model(observation["glyphs"].int(), 
+                          observation["chars"],
+                          observation["colors"],
+                          observation["specials"],
+                          observation["blstats"],
+                          observation["message"],
+                          observation["done"],
+                          initial_agent_state, 
+                          learning=True)
 
         # Use last baseline value (from the value function) to bootstrap.
         learner_outputs = AgentOutput._make(
@@ -195,7 +220,9 @@ def learn(
         baseline_loss = flags.baseline_cost * compute_baseline_loss(
             vtrace_returns.vs - learner_outputs.baseline
         )
+        
         total_loss += pg_loss + baseline_loss
+
 
         # BACKWARD STEP
         optimizer.zero_grad()
@@ -205,7 +232,8 @@ def learn(
         optimizer.step()
         scheduler.step()
 
-        actor_model.load_state_dict(model.state_dict())
+        ## problematic
+        actor_model.load_state_dict(convert_dict(model.state_dict()))
 
         # LOGGING
         episode_returns = env_outputs.episode_return[env_outputs.done]
@@ -290,7 +318,7 @@ def train(flags):
 
     logging.info("Using model %s", flags.model)
 
-    model = create_model(flags, learner_device)
+    model = create_learner_model(flags, learner_device)
 
     plogger.metadata["model_numel"] = sum(
         p.numel() for p in model.parameters() if p.requires_grad
@@ -351,7 +379,7 @@ def train(flags):
         logging.info(f"Resuming preempted job, current stats:\n{stats}")
 
     # Initialize actor model like learner model.
-    actor_model.load_state_dict(model.state_dict())
+    actor_model.load_state_dict(convert_dict(model.state_dict()))
 
     learner_threads = [
         threading.Thread(

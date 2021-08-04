@@ -15,8 +15,9 @@
 from nle.env import tasks
 from nle.env.base import DUNGEON_SHAPE
 
-from .baseline import BaselineNet
+from torch import nn
 from .envs import NetHackStaircase
+from .baseline_tensorized import BaselineNet
 
 from omegaconf import OmegaConf
 import torch
@@ -47,6 +48,28 @@ def create_model(flags, device):
     model.to(device=device)
     return model
 
+def create_learner_model(flags, device):
+    model_string = flags.model
+    if model_string == "baseline":
+        model_cls = BaselineNet
+    else:
+        raise NotImplementedError("model=%s" % model_string)
+
+    action_space = ENVS[flags.env](savedir=None, archivefile=None)._actions
+
+    model = model_cls(DUNGEON_SHAPE, action_space, flags, device)
+    #Multi-GPU
+    num_gpus = torch.cuda.device_count()
+
+    if (num_gpus > 1 and str(device) == "cuda:1"):
+        print("Let's use", num_gpus, "GPUs!", flush=True)
+        device_ids = [i for i in range(1,num_gpus)]
+        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+        model = MyDataParallel(model, device_ids=device_ids, dim=1)
+
+    model.to(device=device)
+    return model
+
 
 def load_model(load_dir, device):
     flags = OmegaConf.load(load_dir + "/config.yaml")
@@ -55,3 +78,16 @@ def load_model(load_dir, device):
     #checkpoint_states = torch.load(flags.checkpoint, map_location=device)
     #model.load_state_dict(checkpoint_states["model_state_dict"])
     return model
+
+class MyDataParallel(nn.DataParallel):
+    def __getattr__(self, name):
+        if name == 'module':
+            return super().__getattr__('module')
+        else:
+            return getattr(self.module, name)
+
+def convert_dict(dict):
+    new_dict = {}
+    for key in dict:
+        new_dict[key[7:]] = dict[key]
+    return new_dict

@@ -68,7 +68,7 @@ env: staircase               # Name of Gym environment to create.
 # TRAINING settings.
 num_actors: 256              # Number of actors.
 total_steps: 1e9             # Total environment steps to train for. Will be cast to int.
-batch_size: 32               # Learner batch size.
+batch_size: 56               # Learner batch size.
 unroll_length: 80            # The unroll length (time dimension).
 num_learner_threads: 1       # Number learner threads.
 num_inference_threads: 1     # Number inference threads.
@@ -107,4 +107,4 @@ msg:
 # TEST settings.    
 load_dir: null               # Path to load a model from for testing
 
-max_learner_queue_size: null
+max_learner_queue_size: 3000
