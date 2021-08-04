@@ -85,6 +85,7 @@ def inference(
             )
             with lock:
                 #outputs = model(observation, agent_state)
+                
                 outputs = model(observation["glyphs"], 
                           observation["chars"],
                           observation["colors"],
@@ -93,8 +94,16 @@ def inference(
                           observation["message"],
                           observation["done"],
                           agent_state)
-
-            core_outputs, agent_state = nest.map(lambda t: t.cpu(), outputs)
+                """
+                outputs = model(observation["chars"],
+                          observation["colors"],
+                          observation["specials"],
+                          observation["blstats"],
+                          observation["message"],
+                          observation["done"],
+                          agent_state)
+                """
+            core_outputs, agent_state, _ = nest.map(lambda t: t.cpu(), outputs)
             # Restructuring the output in the way that is expected
             # by the functions in actorpool.
             outputs = (
@@ -142,17 +151,10 @@ def learn(
         observation["reward"] = reward
         observation["done"] = done
 
-        print(observation["glyphs"].type(), flush=True)
-        print(observation["chars"].type(),flush=True)
-        print(observation["colors"].type(),flush=True)
-        print(observation["specials"].type(),flush=True)
-        print(observation["blstats"].type(),flush=True)
-        print(observation["message"].type(),flush=True)
-        print(observation["done"].type(),flush=True)
-
         lock.acquire()  # Only one thread learning at a time.
         #output, _ = model(observation, initial_agent_state, learning=True)
-        output, _ = model(observation["glyphs"].int(), 
+        
+        output, _, o = model(observation["glyphs"], 
                           observation["chars"],
                           observation["colors"],
                           observation["specials"],
@@ -161,7 +163,28 @@ def learn(
                           observation["done"],
                           initial_agent_state, 
                           learning=True)
+        """
+        #debug
+        output, _ = model(observation["chars"],
+                          observation["colors"],
+                          observation["specials"],
+                          observation["blstats"],
+                          observation["message"],
+                          observation["done"],
+                          initial_agent_state, 
+                          learning=True)
+        """
 
+        """
+        print(output["policy_logits"], flush=True)
+        print(output["baseline"], flush=True)
+        print(output["action"], flush=True)
+
+        loss = nn.MSELoss()
+        target = torch.zeros(o.shape).to(learner_device)
+        total_loss = 0
+        total_loss += loss(o, target)
+        """
         # Use last baseline value (from the value function) to bootstrap.
         learner_outputs = AgentOutput._make(
             (output["action"], output["policy_logits"], output["baseline"])
@@ -188,8 +211,8 @@ def learn(
             model.update_running_moments(rewards)
             rewards /= model.get_running_std()
 
+        
         total_loss = 0
-
         # STANDARD EXTRINSIC LOSSES / REWARDS
         if flags.entropy_cost > 0:
             entropy_loss = flags.entropy_cost * compute_entropy_loss(
@@ -222,8 +245,8 @@ def learn(
         )
         
         total_loss += pg_loss + baseline_loss
-
-
+        
+        
         # BACKWARD STEP
         optimizer.zero_grad()
         total_loss.backward()

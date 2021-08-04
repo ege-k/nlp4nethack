@@ -43,9 +43,9 @@ def conv_outdim(i_dim, k, padding=0, stride=1, dilation=1):
 def select(embedding_layer, x, use_index_select):
     """Use index select instead of default forward to possible speed up embedding."""
     if use_index_select:
-        out = embedding_layer.weight.index_select(0, x.view(-1))
+        out = embedding_layer.weight.index_select(0, x.reshape(-1))
         # handle reshaping x to 1-d and output back to N-d
-        return out.view(x.shape + (-1,))
+        return out.reshape(x.shape + (-1,))
     else:
         return embedding_layer(x)
 
@@ -150,9 +150,10 @@ class BaselineNet(NetHackNet):
         if flags.restrict_action_space:
             reduced_space = nethack.USEFUL_ACTIONS
             logits_mask = get_action_space_mask(action_space, reduced_space)
-            self.policy_logits_mask = nn.parameter.Parameter(
-                logits_mask, requires_grad=False
-            )
+            #self.policy_logits_mask = nn.parameter.Parameter(
+            #    logits_mask, requires_grad=False
+            #)
+            self.register_buffer('policy_logits_mask', logits_mask)
 
     def initial_state(self, batch_size=1):
         
@@ -164,6 +165,7 @@ class BaselineNet(NetHackNet):
 
     def forward(self, glyphs, chars, colors, specials, blstats, message, done, core_state, learning=False):
         T, B, H, W = glyphs.shape
+        
         reps = []
 
         # -- [B' x K] ; B' == (T x B)
@@ -185,14 +187,14 @@ class BaselineNet(NetHackNet):
         st = self.fc(st)
 
         if self.use_lstm:
-            core_input = st.view(T, B, -1)
+            core_input = st.reshape(T, B, -1)
             core_output_list = []
             notdone = (~done).float()
             for input, nd in zip(core_input.unbind(), notdone.unbind()):
                 # Reset core state to zero whenever an episode ended.
                 # Make `done` broadcastable with (num_layers, B, hidden_size)
                 # states:
-                nd = nd.view(1, -1, 1)
+                nd = nd.reshape(1, -1, 1)
                 int_core_state = tuple(nd * t for t in core_state)
                 output, new_core_state = self.core(input.unsqueeze(0), int_core_state)
                 core_output_list.append(output)
@@ -217,12 +219,12 @@ class BaselineNet(NetHackNet):
             # Don't sample when testing.
             action = torch.argmax(policy_logits, dim=1)
 
-        policy_logits = policy_logits.view(T, B, -1)
-        baseline = baseline.view(T, B)
-        action = action.view(T, B)
+        policy_logits = policy_logits.reshape(T, B, -1)
+        baseline = baseline.reshape(T, B)
+        action = action.reshape(T, B)
 
         output = dict(policy_logits=policy_logits, baseline=baseline, action=action)
-        return (output, new_core_state)
+        return (output, new_core_state, features_emb)
 
 class GlyphEncoder(nn.Module):
     """This glyph encoder first breaks the glyphs (integers up to 6000) to a
@@ -255,9 +257,11 @@ class GlyphEncoder(nn.Module):
         self.colors_embedding = nn.Embedding(16, unit)
         self.specials_embedding = nn.Embedding(256, unit)
 
-        self.id_pairs_table = nn.parameter.Parameter(
-            torch.from_numpy(id_pairs_table()), requires_grad=False
-        )
+        #self.id_pairs_table = nn.parameter.Parameter(
+        #    torch.from_numpy(id_pairs_table()), requires_grad=False
+        #)
+        self.register_buffer('id_pairs_table', torch.from_numpy(id_pairs_table()))
+
         num_groups = self.id_pairs_table.select(1, 1).max().item() + 1
         num_ids = self.id_pairs_table.select(1, 0).max().item() + 1
 
@@ -310,10 +314,10 @@ class GlyphEncoder(nn.Module):
 
     def glyphs_to_ids_groups(self, glyphs):
         T, B, H, W = glyphs.shape
-        #ids_groups = self.id_pairs_table.index_select(0, glyphs.view(-1).long())
+        #ids_groups = self.id_pairs_table.index_select(0, glyphs.reshape(-1).long())
         ids_groups = self.id_pairs_table.index_select(0, glyphs.reshape(-1).long())
-        ids = ids_groups.select(1, 0).view(T, B, H, W).long()
-        groups = ids_groups.select(1, 1).view(T, B, H, W).long()
+        ids = ids_groups.select(1, 0).reshape(T, B, H, W).long()
+        groups = ids_groups.select(1, 1).reshape(T, B, H, W).long()
         return [ids, groups]
 
     def forward(self, glyphs, chars, colors, specials, blstats):
@@ -331,7 +335,7 @@ class GlyphEncoder(nn.Module):
         glyphs_emb = torch.cat(glyph_tensors, dim=-1)
         glyphs_emb = rearrange(glyphs_emb, "T B H W K -> (T B) K H W")
 
-        #coordinates = blstats.view(T * B, -1).float()[:, :2]
+        #coordinates = blstats.reshape(T * B, -1).float()[:, :2]
         coordinates = blstats.reshape(T * B, -1).float()[:, :2]
         crop_emb = self.crop(glyphs_emb, coordinates)
 
@@ -395,7 +399,7 @@ class MessageEncoder(nn.Module):
 
     def forward(self, message):
         T, B, *_ = message.shape
-        messages = message.long().view(T * B, -1)
+        messages = message.long().reshape(T * B, -1)
         # [ T * B x E x 256 ]
         char_emb = self.char_lt(messages).transpose(1, 2)
         char_rep = self.conv2_6_fc(self.conv1(char_emb))
@@ -424,7 +428,7 @@ class BLStatsEncoder(nn.Module):
 
         features = blstats
         # -- [B' x F]
-        #features = features.view(T * B, -1).float()
+        #features = features.reshape(T * B, -1).float()
         features = features.reshape(T * B, -1).float()
         # -- [B x K]
         features_emb = self.embed_features(features)
@@ -501,4 +505,4 @@ class Crop(nn.Module):
 
 class Flatten(nn.Module):
     def forward(self, input):
-        return input.view(input.size(0), -1)
+        return input.reshape(input.size(0), -1)
