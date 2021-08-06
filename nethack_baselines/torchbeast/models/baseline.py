@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import collections
+import os
 import sys
 
 import torch
@@ -80,9 +81,9 @@ class NetHackNet(nn.Module):
 
         curr_mean = self.reward_sum / self.reward_count
         new_m2 = torch.sum((reward_batch - new_mean) ** 2) + (
-            (self.reward_count * new_count)
-            / (self.reward_count + new_count)
-            * (new_mean - curr_mean) ** 2
+                (self.reward_count * new_count)
+                / (self.reward_count + new_count)
+                * (new_mean - curr_mean) ** 2
         )
 
         self.reward_count += new_count
@@ -144,9 +145,9 @@ class BaselineNet(NetHackNet):
         self.blstats_model = BLStatsEncoder(NUM_FEATURES, flags.embedding_dim)
 
         out_dim = (
-            self.blstats_model.hidden_dim
-            + self.glyph_model.hidden_dim
-            + self.msg_model.hidden_dim
+                self.blstats_model.hidden_dim
+                + self.glyph_model.hidden_dim
+                + self.msg_model.hidden_dim
         )
 
         self.fc = nn.Sequential(
@@ -222,7 +223,7 @@ class BaselineNet(NetHackNet):
 
         if self.flags.restrict_action_space:
             policy_logits = policy_logits * self.policy_logits_mask + (
-                (1 - self.policy_logits_mask) * -1e10
+                    (1 - self.policy_logits_mask) * -1e10
             )
 
         if self.training:
@@ -263,7 +264,7 @@ class GlyphEncoder(nn.Module):
         L = flags.layers  # number of convnet layers
 
         assert (
-            K % 8 == 0
+                K % 8 == 0
         ), "This glyph embedding format needs embedding dim to be multiple of 8"
         unit = K // 8
         self.chars_embedding = nn.Embedding(256, 2 * unit)
@@ -359,6 +360,7 @@ class GlyphEncoder(nn.Module):
         st = torch.cat([glyphs_rep, crop_rep], dim=1)
         return st
 
+
 class MessageEncoder(nn.Module):
     """This model encodes the the topline message into a fixed size representation.
 
@@ -413,6 +415,7 @@ class MessageEncoder(nn.Module):
         char_rep = self.conv2_6_fc(self.conv1(char_emb))
         return char_rep
 
+
 class MessageEncoderLongformer(nn.Module):
     """The same as MessageEncoder but uses longformer embeddings over corpus.
     """
@@ -424,7 +427,8 @@ class MessageEncoderLongformer(nn.Module):
         self.msg_edim = embedding_dim
 
         # load Elasticsearch with index
-        corpus = load_corpus(nhc_dir="NetHackCorpus/")
+        corpus = load_corpus(nhc_dir=os.path.dirname(os.path.abspath(__file__))[:-7]
+                                     + "/NetHackCorpus/")
         self.es = load_index(corpus, rebuild=False)
         self.SCORE_THRESHOLD = 8
 
@@ -453,7 +457,8 @@ class MessageEncoderLongformer(nn.Module):
             # Example ingame message: "Search for: $htWKgIWBAFxXhdthIX GFTBP"
             # Thus I put in this exception that ignores byte-characters that are unknown.
             try:
-                message = bytes(message_ids.cpu().numpy()[0][idx].astype(int)).decode(sys.stdout.encoding).replace("\x00", "")
+                message = bytes(message_ids.cpu().numpy()[0][idx].astype(int)).decode(sys.stdout.encoding).replace(
+                    "\x00", "")
             except UnicodeDecodeError:
                 message = ""
                 for byte in message_ids.cpu().numpy()[0][idx].astype(int):
@@ -462,7 +467,6 @@ class MessageEncoderLongformer(nn.Module):
                     except UnicodeDecodeError:
                         pass
                 message.replace("\x00", "")
-
 
             if len(message) > 0:
                 # Case where we've got a message
@@ -474,10 +478,10 @@ class MessageEncoderLongformer(nn.Module):
 
                 # get documents from ElasticSearch
                 query_body = {'query': {
-                        "query_string": {
-                            "query": message
-                        }
+                    "query_string": {
+                        "query": message
                     }
+                }
                 }
                 res = self.es.search(index="nethack_corpus", body=query_body)
 
@@ -520,7 +524,8 @@ class MessageEncoderLongformer(nn.Module):
 
             # change this if we wanna finetune
             with torch.no_grad():
-                output = self.model(input_ids, attention_mask=attention_mask, global_attention_mask=global_attention_mask)
+                output = self.model(input_ids, attention_mask=attention_mask,
+                                    global_attention_mask=global_attention_mask)
             pooled_output = output.pooler_output
 
             outputs.append(pooled_output)
@@ -535,6 +540,7 @@ class MessageEncoderLongformer(nn.Module):
 
         return output  # -- [ B x h_dim ]
 
+
 class MessageEncoderBERT(nn.Module):
     """The same as MessageEncoder but uses BERT embeddings over corpus.
     """
@@ -546,7 +552,8 @@ class MessageEncoderBERT(nn.Module):
         self.msg_edim = embedding_dim
 
         # load Elasticsearch with index
-        corpus = load_corpus(nhc_dir="NetHackCorpus/")
+        corpus = load_corpus(nhc_dir=os.path.dirname(os.path.abspath(__file__))[:-7]
+                                     + "/NetHackCorpus/")
         self.es = load_index(corpus, rebuild=False)
         self.SCORE_THRESHOLD = 8
 
@@ -577,7 +584,8 @@ class MessageEncoderBERT(nn.Module):
             # Example ingame message: "Search for: $htWKgIWBAFxXhdthIX GFTBP"
             # Thus I put in this exception that ignores byte-characters that are unknown.
             try:
-                message = bytes(message_ids.cpu().numpy()[0][idx].astype(int)).decode(sys.stdout.encoding).replace("\x00", "")
+                message = bytes(message_ids.cpu().numpy()[0][idx].astype(int)).decode(sys.stdout.encoding).replace(
+                    "\x00", "")
             except UnicodeDecodeError:
                 message = ""
                 for byte in message_ids.cpu().numpy()[0][idx].astype(int):
@@ -600,10 +608,10 @@ class MessageEncoderBERT(nn.Module):
 
                 # get documents from ElasticSearch
                 query_body = {'query': {
-                        "query_string": {
-                            "query": message
-                        }
+                    "query_string": {
+                        "query": message
                     }
+                }
                 }
                 res = self.es.search(index="nethack_corpus", body=query_body)
 
@@ -643,6 +651,7 @@ class MessageEncoderBERT(nn.Module):
         output = self.fc(outputs)
 
         return output  # -- [ B x h_dim ]
+
 
 class BLStatsEncoder(nn.Module):
     """This model encodes the bottom line stats into a fixed size representation.
