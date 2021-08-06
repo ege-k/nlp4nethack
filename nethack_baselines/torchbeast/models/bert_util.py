@@ -1,3 +1,5 @@
+import pickle
+
 import torch
 from NetHackCorpus.corpus_loader import load_corpus
 from tqdm import trange
@@ -5,6 +7,14 @@ import psutil
 
 from transformers import BertModel, BertTokenizer, logging
 
+def load_ftb_from_file(file="ftb.pkl"):
+    with open(file, "rb") as f:
+        ftb = pickle.load(f)
+    return ftb
+
+def save_ftb_in_file(ftb, file="ftb.pkl"):
+    with open("ftb.pkl", "wb") as f:
+        pickle.dump(ftb, f)
 
 def corpus_as_bert_embeddings(corpus_dir, device, output_device="cpu", cleaned=False):
 
@@ -33,10 +43,6 @@ def corpus_as_bert_embeddings(corpus_dir, device, output_device="cpu", cleaned=F
 
     filename_to_bert = dict()
     t = trange(len(corpus), desc='Bar desc', leave=True)
-    free = psutil.virtual_memory().available
-
-    a = torch.ones([1, 768], dtype=torch.double)
-    print(free-psutil.virtual_memory().available)
     free = psutil.virtual_memory().available
 
     for idx in t:
