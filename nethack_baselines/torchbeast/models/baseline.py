@@ -26,6 +26,9 @@ from nle import nethack
 
 from NetHackCorpus.corpus_index import load_index
 from NetHackCorpus.corpus_loader import load_corpus
+from transformers import BertModel, BertTokenizer, LongformerTokenizer, LongformerModel
+from transformers.utils import logging
+
 from .util import id_pairs_table
 import numpy as np
 
