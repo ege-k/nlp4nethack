@@ -49,7 +49,7 @@ def corpus_as_bert_embeddings(corpus_dir, device, output_device="cpu", cleaned=F
         doc = corpus[idx]
         name = doc.split(" ")[0]
 
-        input_ids = tokenizer.encode(doc)[:512]
+        input_ids = tokenizer.encode("[CLS] " + doc)[:512]
         input_ids = torch.tensor(input_ids, dtype=torch.long).unsqueeze(0).to(device)
         with torch.no_grad():
             pooled_output = model(input_ids).pooler_output  # vec of size 1 x 768
