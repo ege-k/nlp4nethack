@@ -426,7 +426,8 @@ class MessageEncoderLongformer(nn.Module):
         self.msg_edim = embedding_dim
 
         # load Elasticsearch with index
-        corpus = load_corpus(nhc_dir="NetHackCorpus/")
+        corpus = load_corpus(nhc_dir=os.path.dirname(os.path.abspath(__file__))[:-7]
+                                     + "/NetHackCorpus/")
         self.es = load_index(corpus, rebuild=False)
         self.SCORE_THRESHOLD = 8
 
@@ -548,7 +549,8 @@ class MessageEncoderBERT(nn.Module):
         self.msg_edim = embedding_dim
 
         # load Elasticsearch with index
-        corpus = load_corpus(nhc_dir="NetHackCorpus/")
+        corpus = load_corpus(nhc_dir=os.path.dirname(os.path.abspath(__file__))[:-7]
+                                     + "/NetHackCorpus/")
         self.es = load_index(corpus, rebuild=False)
         self.SCORE_THRESHOLD = 8
 
