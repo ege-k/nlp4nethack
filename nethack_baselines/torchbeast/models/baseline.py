@@ -491,45 +491,48 @@ class MessageEncoderLongformer(nn.Module):
                 input_sent = ("[CLS] " + message)
                 # calculate this for later. this can be done more nicely, but shouldnt hurt runtime very badly
                 global_attention_span = len(self.tokenizer.encode(input_sent))
-                for doc in res['hits']['hits']:
-                    if doc['_score'] > self.SCORE_THRESHOLD:
-                        # we have a limited input length to longformer, so we make sure that no doc hogs it all
-                        MAX_DOC_LENGTH = 4000
-                        input_sent += " [SEP] " + doc['_source']['text'][:MAX_DOC_LENGTH]
+                if len(res['hits']['hits']) > 0:
+                    for doc in res['hits']['hits']:
+                        if doc['_score'] > self.SCORE_THRESHOLD:
+                            # we have a limited input length to longformer, so we make sure that no doc hogs it all
+                            MAX_DOC_LENGTH = 4000
+                            input_sent += " [SEP] " + doc['_source']['text'][:MAX_DOC_LENGTH]
 
-                # no warning logging so it doesnt complain about the token sequence length all the time
-                logging.set_verbosity_error()
-                # cut the input off so it fits into longformer
-                input_ids = self.tokenizer.encode(input_sent)[:self.MAX_INPUT_LENGTH]
-                logging.set_verbosity_warning()
+                    # no warning logging so it doesnt complain about the token sequence length all the time
+                    logging.set_verbosity_error()
+                    # cut the input off so it fits into longformer
+                    input_ids = self.tokenizer.encode(input_sent)[:self.MAX_INPUT_LENGTH]
+                    logging.set_verbosity_warning()
 
-                # pad the input so all have the same length
-                padding_len = self.MAX_INPUT_LENGTH - len(input_ids)
-                if len(input_ids) < self.MAX_INPUT_LENGTH:
-                    input_ids += ([0] * padding_len)
+                    # pad the input so all have the same length
+                    padding_len = self.MAX_INPUT_LENGTH - len(input_ids)
+                    if len(input_ids) < self.MAX_INPUT_LENGTH:
+                        input_ids += ([0] * padding_len)
 
-                input_ids = torch.tensor(input_ids).unsqueeze(0).to(self.device)
+                    input_ids = torch.tensor(input_ids).unsqueeze(0).to(self.device)
+
+                    # initialize to local attention
+                    attention_mask = torch.ones(input_ids.shape, dtype=torch.long,
+                                                device=input_ids.device)
+                    attention_mask[-padding_len:] = 0
+                    # initialize to global attention
+                    global_attention_mask = torch.zeros(input_ids.shape, dtype=torch.long, device=input_ids.device)
+                    global_attention_mask[:global_attention_span] = 1  # set global attention for [CLS] token and message
+
+                    # change this if we wanna finetune
+                    with torch.no_grad():
+                        output = self.model(input_ids, attention_mask=attention_mask,
+                                            global_attention_mask=global_attention_mask)
+                    pooled_output = output.pooler_output
+
+                    outputs.append(pooled_output)
+                else:
+                    # if no documents were retrieved
+                    outputs.append(torch.zeros(self.hidden_size).to(self.device))
             else:
-                # This is the case if we didn't get a new message
-                input_ids = torch.zeros([1, self.MAX_INPUT_LENGTH], dtype=torch.long,
-                                        device=self.device)
-                padding_len = self.MAX_INPUT_LENGTH
-                global_attention_span = 0
+                # if the message was empty
+                outputs.append(torch.zeros(self.hidden_size).to(self.device))
 
-            # initialize to local attention
-            attention_mask = torch.ones(input_ids.shape, dtype=torch.long,
-                                        device=input_ids.device)
-            attention_mask[-padding_len:] = 0
-            # initialize to global attention
-            global_attention_mask = torch.zeros(input_ids.shape, dtype=torch.long, device=input_ids.device)
-            global_attention_mask[:global_attention_span] = 1  # set global attention for [CLS] token and message
-
-            # change this if we wanna finetune
-            with torch.no_grad():
-                output = self.model(input_ids, attention_mask=attention_mask, global_attention_mask=global_attention_mask)
-            pooled_output = output.pooler_output
-
-            outputs.append(pooled_output)
         # NOTE: In this version, we are pushing the messages through longformer one after another,
         # meaning in batches of 1
         # I do not know if this hurts performance badly, and if we should batch properly instead
@@ -596,7 +599,7 @@ class MessageEncoderBERT(nn.Module):
 
             if len(message) == 0:
                 # This is the case if we didn't get a new message
-                outputs.append(torch.zeros(self.hidden_size))
+                outputs.append(torch.zeros(self.hidden_size).to(self.device))
             else:
                 # Case where we've got a message
 
@@ -640,7 +643,7 @@ class MessageEncoderBERT(nn.Module):
 
                 if len(res_outputs) == 0:
                     # The weird case that no document got a score above threshold
-                    outputs.append(torch.zeros(self.hidden_size))
+                    outputs.append(torch.zeros(self.hidden_size).to(self.device))
                 else:
                     res_outputs = torch.cat(res_outputs)
                     # focus on the biggest activation in the document outputs
