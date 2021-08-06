@@ -15,3 +15,5 @@ transformers
 PyPDF2
 spacy
 nltk
+python-Levenshtein
+gensim

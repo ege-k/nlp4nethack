@@ -24,7 +24,8 @@ from einops import rearrange
 
 from nle import nethack
 
-from NetHackCorpus.corpus_index import load_index
+from .gensim_retriever import load_index
+#from NetHackCorpus.corpus_index import load_index
 from NetHackCorpus.corpus_loader import load_corpus
 from transformers import BertModel, BertTokenizer, LongformerTokenizer, LongformerModel
 from transformers.utils import logging
@@ -431,7 +432,9 @@ class MessageEncoderLongformer(nn.Module):
         # load Elasticsearch with index
         corpus = load_corpus(nhc_dir=os.path.dirname(os.path.abspath(__file__))[:-7]
                                      + "/NetHackCorpus/")
-        self.es = load_index(corpus, rebuild=False)
+        self.index = load_index(corpus)
+        #self.es = load_index(corpus, rebuild=False)
+        self.SCORE_THRESHOLD = 0.1
         self.SCORE_THRESHOLD = 8
 
         self.device = device
@@ -485,17 +488,22 @@ class MessageEncoderLongformer(nn.Module):
                         }
                     }
                 }
-                res = self.es.search(index="nethack_corpus", body=query_body)
+                res = self.index.search(message)
+                #res = self.es.search(index="nethack_corpus", body=query_body)
 
                 # create the input for the longformer by concatenating everything
                 input_sent = ("[CLS] " + message)
                 # calculate this for later. this can be done more nicely, but shouldnt hurt runtime very badly
                 global_attention_span = len(self.tokenizer.encode(input_sent))
-                if len(res['hits']['hits']) > 0:
-                    for doc in res['hits']['hits']:
-                        if doc['_score'] > self.SCORE_THRESHOLD:
+                if len(res) > 0:
+                #if len(res['hits']['hits']) > 0:
+                    for doc in res:
+                    #for doc in res['hits']['hits']:
+                        if doc[1] > self.SCORE_THRESHOLD:
+                        #if doc['_score'] > self.SCORE_THRESHOLD:
                             # we have a limited input length to longformer, so we make sure that no doc hogs it all
                             MAX_DOC_LENGTH = 4000
+                            input_sent += " [SEP] " + self.index.corpus[doc[0]][:MAX_DOC_LENGTH]
                             input_sent += " [SEP] " + doc['_source']['text'][:MAX_DOC_LENGTH]
 
                     # no warning logging so it doesnt complain about the token sequence length all the time
@@ -557,8 +565,9 @@ class MessageEncoderBERT(nn.Module):
         # load Elasticsearch with index
         corpus = load_corpus(nhc_dir=os.path.dirname(os.path.abspath(__file__))[:-7]
                                      + "/NetHackCorpus/")
-        self.es = load_index(corpus, rebuild=False)
-        self.SCORE_THRESHOLD = 8
+        self.index = load_index(corpus)
+        #self.es = load_index(corpus, rebuild=False)
+        self.SCORE_THRESHOLD = 0.1
 
         self.device = device
 
@@ -615,13 +624,15 @@ class MessageEncoderBERT(nn.Module):
                         }
                     }
                 }
-                res = self.es.search(index="nethack_corpus", body=query_body)
+                res = self.index.search(message)
+                #res = self.es.search(index="nethack_corpus", body=query_body)
 
                 res_outputs = []
-                for doc in res['hits']['hits']:
-                    if doc['_score'] > self.SCORE_THRESHOLD:
+                for doc in res:
+                #for doc in res['hits']['hits']:
+                    if doc[1] > self.SCORE_THRESHOLD:
                         input_sent = ("[CLS] " + message)
-                        input_sent += " [SEP] " + doc['_source']['text']
+                        input_sent += " [SEP] " + self.index.corpus[doc[0]]
 
                         # no warning logging so it doesnt complain about the token sequence length all the time
                         logging.set_verbosity_error()
