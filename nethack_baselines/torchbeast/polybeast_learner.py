@@ -153,7 +153,6 @@ def learn(
 
         lock.acquire()  # Only one thread learning at a time.
         #output, _ = model(observation, initial_agent_state, learning=True)
-        
         output, _, o = model(observation["glyphs"], 
                           observation["chars"],
                           observation["colors"],
