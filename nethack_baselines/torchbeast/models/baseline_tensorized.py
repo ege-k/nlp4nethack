@@ -108,6 +108,17 @@ class BaselineNet(NetHackNet):
 
         self.flags = flags
 
+        self.corpus_attention = flags.corpus_attention
+        self.attention_dim = flags.attention_dim
+
+        
+        self.register_buffer('doc_embeddings', torch.load("/home/ekarais/nethack/nlp4nethack/nethack_baselines/torchbeast/models/reduced_doc_embeddings.pt"))
+        embed_size = 128
+        #self.doc_embeddings = torch.randn(1699, embed_size)
+        #self.doc_embeddings.requires_grad = False
+        
+        self.attention = nn.MultiheadAttention(self.attention_dim, 4, kdim=128, vdim=128)
+
         self.observation_shape = observation_shape
         self.num_actions = len(action_space)
 
@@ -128,6 +139,7 @@ class BaselineNet(NetHackNet):
         # BLSTATS MODEL
         self.blstats_model = BLStatsEncoder(NUM_FEATURES, flags.embedding_dim)
 
+    
         out_dim = (
             self.blstats_model.hidden_dim
             + self.glyph_model.hidden_dim
@@ -144,8 +156,14 @@ class BaselineNet(NetHackNet):
         if self.use_lstm:
             self.core = nn.LSTM(self.h_dim, self.h_dim, num_layers=1)
 
-        self.policy = nn.Linear(self.h_dim, self.num_actions)
-        self.baseline = nn.Linear(self.h_dim, 1)
+        if self.corpus_attention:
+            #self.scaling = nn.Linear(self.h_dim, 256)
+            self.policy = nn.Linear(self.h_dim + self.attention_dim, self.num_actions)
+            self.baseline = nn.Linear(self.h_dim + self.attention_dim, 1)
+
+        else:
+            self.policy = nn.Linear(self.h_dim, self.num_actions)
+            self.baseline = nn.Linear(self.h_dim, 1)
 
         if flags.restrict_action_space:
             reduced_space = nethack.USEFUL_ACTIONS
@@ -185,7 +203,8 @@ class BaselineNet(NetHackNet):
 
         # -- [B' x K]
         st = self.fc(st)
-
+        
+        
         if self.use_lstm:
             core_input = st.reshape(T, B, -1)
             core_output_list = []
@@ -201,6 +220,20 @@ class BaselineNet(NetHackNet):
             core_output = torch.flatten(torch.cat(core_output_list), 0, 1)
         else:
             core_output = st
+
+        #print("q shape", core_output.shape, flush=True)
+        #print("k,v shape", self.doc_embeddings.shape, flush=True)
+        if self.corpus_attention:
+            #scaled_output = self.scaling(core_output)
+            self.doc_embeddings = self.doc_embeddings.to(core_output.get_device())
+            batch_size = core_output.shape[0]
+            attention_out, _ = self.attention(torch.unsqueeze(core_output, 0), 
+                                              torch.unsqueeze(self.doc_embeddings, 1).expand(-1, batch_size,-1), 
+                                              torch.unsqueeze(self.doc_embeddings, 1).expand(-1, batch_size,-1))
+            
+            #print("q shape", core_output.shape, flush=True)
+            #print("attention shape", attention_out.shape, flush=True)
+            core_output = torch.cat([core_output, attention_out[0]], dim=1)
 
         # -- [B' x A]
         policy_logits = self.policy(core_output)
@@ -244,6 +277,8 @@ class GlyphEncoder(nn.Module):
 
     def __init__(self, flags, rows, cols, crop_dim, device=None):
         super(GlyphEncoder, self).__init__()
+
+        
 
         self.crop = Crop(rows, cols, crop_dim, crop_dim, device)
         K = flags.embedding_dim  # number of input filters
@@ -348,6 +383,8 @@ class GlyphEncoder(nn.Module):
         assert crop_rep.shape[0] == T * B
 
         st = torch.cat([glyphs_rep, crop_rep], dim=1)
+        
+        
         return st
 
 

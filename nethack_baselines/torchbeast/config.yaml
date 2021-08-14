@@ -49,7 +49,7 @@ fn_penalty_step: constant    # Function to accumulate penalty.
 penalty_time: 0.0            # Penalty per time step in the episode.
 penalty_step: -0.01          # Penalty per step in the episode.
 reward_lose: 0               # Reward for losing (dying before finding the staircase).
-reward_win: 1              # Reward for winning (finding the staircase).
+reward_win: 100              # Reward for winning (finding the staircase).
 state_counter: none          # Method for counting state visits. Default none.
 character: 'mon-hum-neu-mal' # Specification of the NetHack character.
                               ## typical characters we use
@@ -73,16 +73,9 @@ unroll_length: 80            # The unroll length (time dimension).
 num_learner_threads: 1       # Number learner threads.
 num_inference_threads: 1     # Number inference threads.
 disable_cuda: false          # Disable CUDA.
-<<<<<<< Updated upstream
 learner_device: cuda:0       # Set learner device.
 actor_device: cuda:1         # Set actor device.
 
-=======
-learner_device: cuda:1       # Set learner device.
-actor_device: cuda:0         # Set actor device.
-corpus_attention: true
-attention_dim: 256
->>>>>>> Stashed changes
 # OPTIMIZER settings. (RMS Prop)
 learning_rate: 0.0002        # Learning rate.
 grad_norm_clipping: 40       # Global gradient norm clip.
@@ -105,7 +98,8 @@ layers: 5                    # Number of ConvNet Layers for Glyph Model
 crop_dim: 9                  # Size of crop (c x c)
 use_index_select: true       # Whether to use index_select instead of embedding lookup (for speed reasons).
 restrict_action_space: True  # Use a restricted ACTION SPACE (only nethack.USEFUL_ACTIONS)
-
+corpus_attention: false
+attention_dim: 256
 msg:                      
   hidden_dim: 64             # Hidden dimension for message encoder.
   embedding_dim: 32          # Embedding dimension for characters in message encoder.
