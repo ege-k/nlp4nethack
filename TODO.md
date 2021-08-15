@@ -19,6 +19,7 @@
 ### Runtime
 * What exactly is the interplay between num_actors, actor_model and learner_model?
    * how are CPUs utilized?
+   * why is the actor GPU utilized less than learner GPUs? Is the bottleneck num_actors?
 
 ### Algorithmic
 * Is one attention layer "enough"?
