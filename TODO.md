@@ -11,6 +11,9 @@
 * use embeddings in the CNN layer
 * use embeddings in the action layer
 
+### Other actionables
+* produce rollout videos every N steps and push them to wandb
+
 ## Things to think about
 
 ### Runtime
